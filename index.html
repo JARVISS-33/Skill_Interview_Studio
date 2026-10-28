@@ -180,19 +180,30 @@ function voiceSet(text,cls){const e=$('voiceState');e.textContent=text;e.classNa
 async function prepareVoice(){
  if(voice.busy||voice.ready)return;
  voice.busy=true;$('voiceButton').disabled=true;voiceSet('Checking…');
+ const log=[],MAX_MS=600000;
  try{
-  if(!SRC||typeof SRC.available!=='function')throw new Error('On-device voice needs a recent version of Google Chrome on a computer. Please switch browser.');
+  if(!SRC||typeof SRC.available!=='function')throw new Error('On-device voice needs Google Chrome on a computer (Microsoft Edge is not supported). Please switch browser.');
   for(const lang of VOICE_LANGS){
-   let a=await SRC.available({langs:[lang],processLocally:true});
+   const opts={langs:[lang],processLocally:true};
+   let a=await SRC.available(opts);
    if(a==='downloadable'||a==='downloading'){
-    voiceSet('Downloading '+lang+' language pack… please wait');
-    const ok=await SRC.install({langs:[lang],processLocally:true});
-    if(!ok)continue;
-    a=await SRC.available({langs:[lang],processLocally:true});
-   }
+    const t0=Date.now();let done=false,ok=false,err='';
+    SRC.install(opts).then(r=>{done=true;ok=!!r;}).catch(e=>{done=true;err=(e&&(e.message||e.name))||'error';});
+    while(Date.now()-t0<MAX_MS){
+     await wait(2000);
+     a=await SRC.available(opts);
+     voiceSet('Downloading '+lang+' language pack… '+Math.round((Date.now()-t0)/1000)+' s (status: '+a+'). Keep this tab open.');
+     if(a==='available')break;
+     if(done&&a!=='downloading')break;
+    }
+    if(a!=='available'){
+     if(!done)log.push(lang+': still '+a+' after '+Math.round(MAX_MS/60000)+' min');
+     else log.push(lang+': install '+(err?'error ('+err+')':ok?'finished':'failed')+', status '+a);
+    }
+   }else if(a!=='available'){log.push(lang+': '+a);}
    if(a==='available'){voice.ready=true;voice.lang=lang;break;}
   }
-  if(!voice.ready)throw new Error('No on-device English language pack could be installed on this device.');
+  if(!voice.ready)throw new Error('No on-device English language pack could be installed. Details: '+log.join(' | ')+'. If this device is managed by an organization, the download may be blocked.');
   voiceSet('Voice ready ('+voice.lang+', on-device)','ok');
  }catch(e){voiceSet(e.message||'Voice could not be prepared.','bad');$('voiceButton').disabled=false;}
  voice.busy=false;
